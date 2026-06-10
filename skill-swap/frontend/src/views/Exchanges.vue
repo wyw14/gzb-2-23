@@ -112,7 +112,7 @@
       </div>
     </div>
 
-    <el-dialog v-model="showChecklistDialog" :title="checklistDialogTitle" width="720px" top="5vh">
+    <el-dialog v-model="showChecklistDialog" :title="checklistDialogTitle" width="720px" top="5vh" @close="onChecklistDialogClose">
       <div v-if="currentExchange" class="checklist-dialog-wrapper">
         <div class="checklist-exchange-info">
           <div class="info-users">
@@ -134,6 +134,7 @@
           :initiator-id="currentExchange.initiatorId"
           :partner-id="currentExchange.partnerId"
           :users="users"
+          @update:stats="onChecklistStatsUpdate"
         />
       </div>
     </el-dialog>
@@ -366,15 +367,40 @@ function hasReviewed(exchange) {
 function openChecklistDetail(exchange) {
   currentExchange.value = exchange
   showChecklistDialog.value = true
-  setTimeout(async () => {
-    try {
-      const checklistRes = await exchangeAPI.getChecklists(exchange.id)
-      checklistCache.value[exchange.id] = checklistRes.data
-      if (showChecklistDialog.value) {
-        await loadExchanges()
+}
+
+function onChecklistStatsUpdate(newStats) {
+  if (!currentExchange.value) return
+  currentExchange.value.checklistStats = { ...newStats }
+  const idx = exchanges.value.findIndex(e => e.id === currentExchange.value.id)
+  if (idx !== -1) {
+    exchanges.value[idx].checklistStats = { ...newStats }
+  }
+  refreshChecklistCache(currentExchange.value.id)
+}
+
+async function refreshChecklistCache(exchangeId) {
+  try {
+    const checklistRes = await exchangeAPI.getChecklists(exchangeId)
+    checklistCache.value[exchangeId] = checklistRes.data
+    const idx = exchanges.value.findIndex(e => e.id === exchangeId)
+    if (idx !== -1) {
+      const total = checklistRes.data.length
+      const completed = checklistRes.data.filter(c => c.completed).length
+      exchanges.value[idx].checklistStats = {
+        total,
+        completed,
+        completionRate: total > 0 ? Math.round((completed / total) * 100) : 0
       }
-    } catch (e) {}
-  }, 200)
+      if (currentExchange.value && currentExchange.value.id === exchangeId) {
+        currentExchange.value.checklistStats = exchanges.value[idx].checklistStats
+      }
+    }
+  } catch (e) {}
+}
+
+async function onChecklistDialogClose() {
+  await loadExchanges()
 }
 
 function showReviewDialog(exchange) {

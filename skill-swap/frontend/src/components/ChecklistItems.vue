@@ -6,13 +6,12 @@
       class="checklist-item"
       :class="{ completed: item.completed }"
     >
-      <div class="item-checkbox" @click="handleToggle(item)">
-        <el-checkbox
-          :model-value="item.completed"
-          :disabled="!canToggle(item)"
-          @click.stop
-        />
-      </div>
+      <el-checkbox
+        :model-value="item.completed"
+        :disabled="!canToggle(item)"
+        @change="handleToggle(item)"
+        class="item-checkbox"
+      />
 
       <div class="item-content">
         <div class="item-header">
