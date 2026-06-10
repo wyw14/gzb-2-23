@@ -56,7 +56,14 @@ export const messageAPI = {
 export const exchangeAPI = {
   getExchanges: () => api.get('/exchanges'),
   createExchange: (data) => api.post('/exchanges', data),
-  confirmExchange: (id) => api.put(`/exchanges/${id}/confirm`)
+  confirmExchange: (id) => api.put(`/exchanges/${id}/confirm`),
+  getExchange: (id) => api.get(`/exchanges/${id}`),
+  getChecklists: (exchangeId) => api.get(`/exchanges/${exchangeId}/checklists`),
+  createChecklist: (exchangeId, data) => api.post(`/exchanges/${exchangeId}/checklists`, data),
+  updateChecklist: (id, data) => api.put(`/checklists/${id}`, data),
+  deleteChecklist: (id) => api.delete(`/checklists/${id}`),
+  toggleChecklist: (id) => api.put(`/checklists/${id}/toggle`),
+  getUserChecklistStats: (userId) => api.get(`/users/${userId}/checklist-stats`)
 }
 
 export const reviewAPI = {

@@ -341,10 +341,226 @@ app.put('/api/exchanges/:id/confirm', authMiddleware, (req, res) => {
 
 app.get('/api/exchanges', authMiddleware, (req, res) => {
   const exchanges = readJson('exchanges.json');
+  const checklists = readJson('checklists.json');
   const myExchanges = exchanges.filter(e =>
     e.initiatorId === req.user.id || e.partnerId === req.user.id
-  );
+  ).map(exchange => {
+    const exchangeChecklists = checklists.filter(c => c.exchangeId === exchange.id);
+    const totalItems = exchangeChecklists.length;
+    const completedItems = exchangeChecklists.filter(c => c.completed).length;
+    const completionRate = totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0;
+    return {
+      ...exchange,
+      checklistStats: {
+        total: totalItems,
+        completed: completedItems,
+        completionRate
+      }
+    };
+  });
   res.json(myExchanges);
+});
+
+app.get('/api/exchanges/:id', authMiddleware, (req, res) => {
+  const exchanges = readJson('exchanges.json');
+  const exchange = exchanges.find(e => e.id === req.params.id);
+  if (!exchange) {
+    return res.status(404).json({ error: '交换不存在' });
+  }
+  if (exchange.initiatorId !== req.user.id && exchange.partnerId !== req.user.id) {
+    return res.status(403).json({ error: '无权查看此交换' });
+  }
+  res.json(exchange);
+});
+
+app.get('/api/exchanges/:exchangeId/checklists', authMiddleware, (req, res) => {
+  const exchanges = readJson('exchanges.json');
+  const exchange = exchanges.find(e => e.id === req.params.exchangeId);
+  if (!exchange) {
+    return res.status(404).json({ error: '交换不存在' });
+  }
+  if (exchange.initiatorId !== req.user.id && exchange.partnerId !== req.user.id) {
+    return res.status(403).json({ error: '无权查看此交换的清单' });
+  }
+
+  const checklists = readJson('checklists.json');
+  const exchangeChecklists = checklists
+    .filter(c => c.exchangeId === req.params.exchangeId)
+    .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  res.json(exchangeChecklists);
+});
+
+app.post('/api/exchanges/:exchangeId/checklists', authMiddleware, (req, res) => {
+  const { title, description, type, url, ownerId } = req.body;
+
+  if (!title || !type) {
+    return res.status(400).json({ error: '请填写清单标题和类型' });
+  }
+
+  const validTypes = ['material', 'practice', 'homework'];
+  if (!validTypes.includes(type)) {
+    return res.status(400).json({ error: '清单类型无效' });
+  }
+
+  const exchanges = readJson('exchanges.json');
+  const exchange = exchanges.find(e => e.id === req.params.exchangeId);
+  if (!exchange) {
+    return res.status(404).json({ error: '交换不存在' });
+  }
+  if (exchange.initiatorId !== req.user.id && exchange.partnerId !== req.user.id) {
+    return res.status(403).json({ error: '无权操作此交换' });
+  }
+
+  const validOwnerIds = [exchange.initiatorId, exchange.partnerId];
+  const finalOwnerId = ownerId && validOwnerIds.includes(ownerId) ? ownerId : req.user.id;
+
+  const checklists = readJson('checklists.json');
+  const newChecklist = {
+    id: uuidv4(),
+    exchangeId: req.params.exchangeId,
+    title,
+    description: description || '',
+    type,
+    url: url || '',
+    ownerId: finalOwnerId,
+    createdBy: req.user.id,
+    completed: false,
+    completedAt: null,
+    completedBy: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+  checklists.push(newChecklist);
+  writeJson('checklists.json', checklists);
+  res.json(newChecklist);
+});
+
+app.put('/api/checklists/:id', authMiddleware, (req, res) => {
+  const checklists = readJson('checklists.json');
+  const index = checklists.findIndex(c => c.id === req.params.id);
+  if (index === -1) {
+    return res.status(404).json({ error: '清单不存在' });
+  }
+
+  const checklist = checklists[index];
+  const exchanges = readJson('exchanges.json');
+  const exchange = exchanges.find(e => e.id === checklist.exchangeId);
+  if (!exchange) {
+    return res.status(404).json({ error: '交换不存在' });
+  }
+  if (checklist.createdBy !== req.user.id) {
+    return res.status(403).json({ error: '无权修改此清单项' });
+  }
+
+  const allowedFields = ['title', 'description', 'type', 'url', 'ownerId'];
+  const validOwnerIds = [exchange.initiatorId, exchange.partnerId];
+
+  allowedFields.forEach(field => {
+    if (req.body[field] !== undefined) {
+      if (field === 'ownerId' && !validOwnerIds.includes(req.body[field])) {
+        return;
+      }
+      checklist[field] = req.body[field];
+    }
+  });
+
+  if (req.body.type !== undefined) {
+    const validTypes = ['material', 'practice', 'homework'];
+    if (!validTypes.includes(req.body.type)) {
+      return res.status(400).json({ error: '清单类型无效' });
+    }
+  }
+
+  checklist.updatedAt = new Date().toISOString();
+  checklists[index] = checklist;
+  writeJson('checklists.json', checklists);
+  res.json(checklist);
+});
+
+app.delete('/api/checklists/:id', authMiddleware, (req, res) => {
+  const checklists = readJson('checklists.json');
+  const index = checklists.findIndex(c => c.id === req.params.id);
+  if (index === -1) {
+    return res.status(404).json({ error: '清单不存在' });
+  }
+
+  const checklist = checklists[index];
+  if (checklist.createdBy !== req.user.id) {
+    return res.status(403).json({ error: '无权删除此清单项' });
+  }
+
+  checklists.splice(index, 1);
+  writeJson('checklists.json', checklists);
+  res.json({ success: true });
+});
+
+app.put('/api/checklists/:id/toggle', authMiddleware, (req, res) => {
+  const checklists = readJson('checklists.json');
+  const index = checklists.findIndex(c => c.id === req.params.id);
+  if (index === -1) {
+    return res.status(404).json({ error: '清单不存在' });
+  }
+
+  const checklist = checklists[index];
+  const exchanges = readJson('exchanges.json');
+  const exchange = exchanges.find(e => e.id === checklist.exchangeId);
+  if (!exchange) {
+    return res.status(404).json({ error: '交换不存在' });
+  }
+  if (exchange.initiatorId !== req.user.id && exchange.partnerId !== req.user.id) {
+    return res.status(403).json({ error: '无权操作此清单' });
+  }
+
+  if (checklist.ownerId !== req.user.id && checklist.completed !== true) {
+    return res.status(403).json({ error: '只有负责人可以完成此清单项' });
+  }
+
+  if (checklist.completed) {
+    checklist.completed = false;
+    checklist.completedAt = null;
+    checklist.completedBy = null;
+  } else {
+    checklist.completed = true;
+    checklist.completedAt = new Date().toISOString();
+    checklist.completedBy = req.user.id;
+  }
+
+  checklist.updatedAt = new Date().toISOString();
+  checklists[index] = checklist;
+  writeJson('checklists.json', checklists);
+  res.json(checklist);
+});
+
+app.get('/api/users/:userId/checklist-stats', authMiddleware, (req, res) => {
+  const checklists = readJson('checklists.json');
+  const exchanges = readJson('exchanges.json');
+
+  const userExchanges = exchanges.filter(e =>
+    e.initiatorId === req.params.userId || e.partnerId === req.params.userId
+  );
+
+  let totalItems = 0;
+  let completedItems = 0;
+  let ownerTotal = 0;
+  let ownerCompleted = 0;
+
+  userExchanges.forEach(exchange => {
+    const exchangeChecklists = checklists.filter(c => c.exchangeId === exchange.id);
+    totalItems += exchangeChecklists.length;
+    completedItems += exchangeChecklists.filter(c => c.completed).length;
+    const ownerChecklists = exchangeChecklists.filter(c => c.ownerId === req.params.userId);
+    ownerTotal += ownerChecklists.length;
+    ownerCompleted += ownerChecklists.filter(c => c.completed).length;
+  });
+
+  res.json({
+    total: totalItems,
+    completed: completedItems,
+    completionRate: totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0,
+    ownerTotal,
+    ownerCompleted,
+    ownerCompletionRate: ownerTotal > 0 ? Math.round((ownerCompleted / ownerTotal) * 100) : 0
+  });
 });
 
 app.post('/api/reviews', authMiddleware, (req, res) => {
